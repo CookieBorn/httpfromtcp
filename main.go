@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
@@ -12,25 +13,45 @@ func main() {
 		fmt.Errorf("Open error: %v\n", err)
 		return
 	}
-	b := make([]byte, 8)
-	Line := []string{}
-	for 1 > 0 {
-		_, err := file.Read(b)
-		if err != nil {
-
-			fmt.Errorf("Open error: %v\n", err)
-			return
-		}
-		splitB := strings.Split(string(b), "\n")
-		if len(splitB) == 1 {
-			Line = append(Line, splitB[0])
+	chanell := getLinesChannel(file)
+	for Line := range chanell {
+		if Line == "ay?ay?" {
+			break
 		} else {
-			Line = append(Line, splitB[0])
-			joinLine := strings.Join(Line, "")
-			fmt.Printf("read: %s\n", joinLine)
-			Line = []string{}
-			Line = append(Line, splitB[1])
+			fmt.Printf("read: %s\n", Line)
 		}
 	}
 
+}
+
+func getLinesChannel(f io.ReadCloser) <-chan string {
+	chanString := make(chan string)
+	b := make([]byte, 8)
+	Line := ""
+	go func() {
+		for 1 > 0 {
+			n, err := f.Read(b)
+			if n > 0 {
+				Line += string(b[:n])
+				for {
+					i := strings.Index(Line, "\n")
+					if i < 0 {
+						break
+					}
+					sendLine := Line[:i]
+					chanString <- sendLine
+					Line = Line[i+1:]
+				}
+			}
+			if err != nil {
+				if Line != "" {
+					chanString <- Line
+				}
+				f.Close()
+				close(chanString)
+				return
+			}
+		}
+	}()
+	return chanString
 }
