@@ -5,6 +5,8 @@ import (
 	"io"
 	"net"
 	"strings"
+
+	"github.com/CookieBorn/httpfromtcp/internal/request"
 )
 
 func main() {
@@ -22,10 +24,15 @@ func main() {
 			return
 		}
 		fmt.Print("A connection has been established\n")
-		chanell := getLinesChannel(con)
-		for Line := range chanell {
-			fmt.Printf("%s\n", Line)
+		req, err := request.RequestFromReader(con)
+		if err != nil {
+			fmt.Errorf("Request error: %v\n", err)
+			return
 		}
+		fmt.Print("Request line:\n")
+		fmt.Printf("- Method: %s\n", req.RequestLine.Method)
+		fmt.Printf("- Target: %s\n", req.RequestLine.RequestTarget)
+		fmt.Printf("- Version: %s\n", req.RequestLine.HttpVersion)
 	}
 }
 
