@@ -3,35 +3,65 @@ package headers
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 type Headers map[string]string
 
 func NewHeaders() Headers {
-	return make(Headers)
+	return map[string]string{}
 }
 
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	strRead := string(data)
 	i := strings.Index(strRead, "\r\n")
 	if i < 0 {
-		return 0, false, nil
+		return 0, false, nil // Need more data
 	} else if i == 0 {
 		return 2, true, nil
 	}
-	headTrim := strings.TrimSpace(strRead[:i])
-	headParts := strings.Split(headTrim, ":")
-	headParts[1] = strings.TrimSpace(headParts[1])
-	for _, headPart := range headParts {
-		if headPart != strings.TrimSpace(headPart) {
-			return 0, false, fmt.Errorf("Header not formated correctly")
-		}
-	}
-	if len(headParts) > 2 {
-		h[headParts[0]] = headParts[1] + ":" + headParts[2]
-	} else {
-		h[headParts[0]] = headParts[1]
+	headerLine := strRead[:i]
+	headParts := strings.SplitN(headerLine, ":", 2)
+	if len(headParts) != 2 {
+		return 0, false, fmt.Errorf("malformed header: %s", headerLine)
 	}
 
-	return len(headTrim) + 2, false, nil
+	name := strings.ToLower(headParts[0])
+	if name != strings.TrimRight(name, " ") {
+		return 0, false, fmt.Errorf("invalid header name: %s", name)
+	}
+	value := strings.TrimSpace(headParts[1])
+
+	if !ValidnameCheck(strings.ToLower(headParts[0])) {
+		return 0, false, fmt.Errorf("Incorrect characters in runes")
+	}
+	if _, ok := h[name]; ok {
+		h[name] += ", " + value
+	} else {
+		h[name] = value
+	}
+	return len(headerLine) + 2, false, nil
+}
+
+func ValidnameCheck(name string) bool {
+	allowed := []rune{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
+	NotSpecial := []rune{}
+	for _, letter := range name {
+		found := false
+		for _, all := range allowed {
+			if all == letter {
+				found = true
+			}
+		}
+		if found == false {
+			NotSpecial = append(NotSpecial, letter)
+		}
+	}
+	for _, letter := range NotSpecial {
+		if !unicode.IsLetter(letter) && !unicode.IsNumber(letter) {
+			return false
+		}
+	}
+
+	return true
 }

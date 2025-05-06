@@ -4,10 +4,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/CookieBorn/httpfromtcp/internal/headers"
 )
+
+// State. 0: Parse Requests, 1: Parse Headers, 2: done
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	State       int
 }
 
@@ -18,22 +23,35 @@ type RequestLine struct {
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	req := Request{
-		State: 1,
+	req := &Request{
+		State:   0, // requestStateParsingRequestLine
+		Headers: headers.NewHeaders(),
 	}
-	var buf []byte
-	for req.State == 1 {
-		reBytes, err := io.ReadAll(reader)
-		if err != nil {
+	buf := make([]byte, 4096)
+	readBuffer := []byte{}
+
+	for {
+		n, err := reader.Read(buf)
+		if err != nil && err != io.EOF {
 			return nil, err
 		}
-		buf = append(buf, reBytes...)
-		_, err = req.parse(buf)
-		if err != nil {
-			return nil, err
+
+		readBuffer = append(readBuffer, buf[:n]...)
+		bytesProcessed, parseErr := req.parse(readBuffer)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+
+		// Trim the buffer to remove processed bytes
+		readBuffer = readBuffer[bytesProcessed:]
+
+		// If we've reached the end of headers or EOF, we're done
+		if req.State == 2 || (err == io.EOF && n == 0) {
+			break
 		}
 	}
-	return &req, nil
+
+	return req, nil
 }
 
 func parseRequestLine(res []byte) (int, RequestLine, error) {
@@ -62,15 +80,47 @@ func parseRequestLine(res []byte) (int, RequestLine, error) {
 }
 
 func (r *Request) parse(data []byte) (int, error) {
-	i, reqLine, err := parseRequestLine(data)
-	if err != nil {
-		return 0, err
+	totalBytesParsed := 0
+	for r.State != 2 {
+		n, err := r.parseSingle(data[totalBytesParsed:])
+		if err != nil {
+			return 0, err
+		}
+		totalBytesParsed += n
+		if n == 0 {
+			break
+		}
 	}
-	if i == 0 {
+	return totalBytesParsed, nil
+}
+
+func (r *Request) parseSingle(data []byte) (int, error) {
+	switch r.State {
+	case 0:
+		// Your request line parsing logic
+		i, reqLine, err := parseRequestLine(data)
+		if err != nil {
+			return 0, err
+		}
+		if i == 0 {
+			// Need more data
+			return 0, nil
+		}
+		r.RequestLine = reqLine
 		r.State = 1
-		return 0, nil
+		return i, nil
+	case 1:
+		i, done, err := r.Headers.Parse(data)
+		if err != nil {
+			return 0, err
+		}
+		if done {
+			r.State = 2
+		}
+		return i, nil
+	case 2:
+		return 0, fmt.Errorf("error: trying to read data in a done state")
+	default:
+		return 0, fmt.Errorf("unexpected state: %v", r.State)
 	}
-	r.RequestLine = reqLine
-	r.State = 0
-	return 0, nil
 }
