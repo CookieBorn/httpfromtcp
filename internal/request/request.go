@@ -1,12 +1,16 @@
 package request
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/CookieBorn/httpfromtcp/internal/headers"
 )
+
+const crlf = "\r\n"
 
 // State. 0: Parse Requests, 1: Parse Headers, 2: done
 
@@ -29,54 +33,76 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	}
 	buf := make([]byte, 4096)
 	readBuffer := []byte{}
-
-	for {
+	for req.State != 2 {
 		n, err := reader.Read(buf)
-		if err != nil && err != io.EOF {
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if req.State != 2 {
+					return nil, fmt.Errorf("incomplete request, in state: %d, read n bytes on EOF: %d", req.State, n)
+				}
+				break
+			}
 			return nil, err
 		}
-
 		readBuffer = append(readBuffer, buf[:n]...)
 		bytesProcessed, parseErr := req.parse(readBuffer)
 		if parseErr != nil {
 			return nil, parseErr
-		}
 
-		// Trim the buffer to remove processed bytes
+		}
 		readBuffer = readBuffer[bytesProcessed:]
-
-		// If we've reached the end of headers or EOF, we're done
-		if req.State == 2 || (err == io.EOF && n == 0) {
-			break
-		}
 	}
 
 	return req, nil
 }
 
-func parseRequestLine(res []byte) (int, RequestLine, error) {
-	returnStruct := RequestLine{}
-	strRead := string(res)
-	i := strings.Index(strRead, "\r\n")
-	if i < 0 {
-		return 0, returnStruct, nil
+func parseRequestLine(data []byte) (*RequestLine, int, error) {
+	idx := bytes.Index(data, []byte(crlf))
+	if idx == -1 {
+		return nil, 0, nil
 	}
-	parts := strings.Split(strRead, "\r\n")
-	reqLine := parts[0]
-	reqLineParts := strings.Split(reqLine, " ")
-	if len(reqLineParts) != 3 {
-		return i, returnStruct, fmt.Errorf("Not enough parts in request line")
+	requestLineText := string(data[:idx])
+	requestLine, err := requestLineFromString(requestLineText)
+	if err != nil {
+		return nil, 0, err
 	}
-	if reqLineParts[0] != strings.ToUpper(reqLineParts[0]) {
-		return i, returnStruct, fmt.Errorf("Method incorect in request line")
+	return requestLine, idx + 2, nil
+}
+
+func requestLineFromString(str string) (*RequestLine, error) {
+	parts := strings.Split(str, " ")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("poorly formatted request-line: %s", str)
 	}
-	if reqLineParts[2] != "HTTP/1.1" {
-		return i, returnStruct, fmt.Errorf("only HTTP/1.1 accepted")
+
+	method := parts[0]
+	for _, c := range method {
+		if c < 'A' || c > 'Z' {
+			return nil, fmt.Errorf("invalid method: %s", method)
+		}
 	}
-	returnStruct.HttpVersion = "1.1"
-	returnStruct.Method = reqLineParts[0]
-	returnStruct.RequestTarget = reqLineParts[1]
-	return i, returnStruct, nil
+
+	requestTarget := parts[1]
+
+	versionParts := strings.Split(parts[2], "/")
+	if len(versionParts) != 2 {
+		return nil, fmt.Errorf("malformed start-line: %s", str)
+	}
+
+	httpPart := versionParts[0]
+	if httpPart != "HTTP" {
+		return nil, fmt.Errorf("unrecognized HTTP-version: %s", httpPart)
+	}
+	version := versionParts[1]
+	if version != "1.1" {
+		return nil, fmt.Errorf("unrecognized HTTP-version: %s", version)
+	}
+
+	return &RequestLine{
+		Method:        method,
+		RequestTarget: requestTarget,
+		HttpVersion:   versionParts[1],
+	}, nil
 }
 
 func (r *Request) parse(data []byte) (int, error) {
@@ -98,7 +124,7 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 	switch r.State {
 	case 0:
 		// Your request line parsing logic
-		i, reqLine, err := parseRequestLine(data)
+		reqLine, i, err := parseRequestLine(data)
 		if err != nil {
 			return 0, err
 		}
@@ -106,7 +132,7 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			// Need more data
 			return 0, nil
 		}
-		r.RequestLine = reqLine
+		r.RequestLine = *reqLine
 		r.State = 1
 		return i, nil
 	case 1:

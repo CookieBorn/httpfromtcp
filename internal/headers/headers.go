@@ -1,9 +1,9 @@
 package headers
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
-	"unicode"
 )
 
 type Headers map[string]string
@@ -12,56 +12,61 @@ func NewHeaders() Headers {
 	return map[string]string{}
 }
 
+const crlf = "\r\n"
+
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
-	strRead := string(data)
-	i := strings.Index(strRead, "\r\n")
-	if i < 0 {
-		return 0, false, nil // Need more data
-	} else if i == 0 {
+	// print the data with crlf encoding
+
+	idx := bytes.Index(data, []byte(crlf))
+	if idx == -1 {
+		return 0, false, nil
+	}
+	if idx == 0 {
+		// the empty line
+		// headers are done, consume the CRLF
 		return 2, true, nil
 	}
-	headerLine := strRead[:i]
-	headParts := strings.SplitN(headerLine, ":", 2)
-	if len(headParts) != 2 {
-		return 0, false, fmt.Errorf("malformed header: %s", headerLine)
+
+	parts := bytes.SplitN(data[:idx], []byte(":"), 2)
+	key := strings.ToLower(string(parts[0]))
+
+	if key != strings.TrimRight(key, " ") {
+		return 0, false, fmt.Errorf("invalid header name: %s", key)
 	}
 
-	name := strings.ToLower(headParts[0])
-	if name != strings.TrimRight(name, " ") {
-		return 0, false, fmt.Errorf("invalid header name: %s", name)
+	value := bytes.TrimSpace(parts[1])
+	key = strings.TrimSpace(key)
+	if !validTokens([]byte(key)) {
+		return 0, false, fmt.Errorf("invalid header token found: %s", key)
 	}
-	value := strings.TrimSpace(headParts[1])
-
-	if !ValidnameCheck(strings.ToLower(headParts[0])) {
-		return 0, false, fmt.Errorf("Incorrect characters in runes")
-	}
-	if _, ok := h[name]; ok {
-		h[name] += ", " + value
-	} else {
-		h[name] = value
-	}
-	return len(headerLine) + 2, false, nil
+	h.Set(key, string(value))
+	return idx + 2, false, nil
 }
 
-func ValidnameCheck(name string) bool {
-	allowed := []rune{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
-	NotSpecial := []rune{}
-	for _, letter := range name {
-		found := false
-		for _, all := range allowed {
-			if all == letter {
-				found = true
-			}
-		}
-		if found == false {
-			NotSpecial = append(NotSpecial, letter)
-		}
+func (h Headers) Set(key, value string) {
+	key = strings.ToLower(key)
+	v, ok := h[key]
+	if ok {
+		value = strings.Join([]string{
+			v,
+			value,
+		}, ", ")
 	}
-	for _, letter := range NotSpecial {
-		if !unicode.IsLetter(letter) && !unicode.IsNumber(letter) {
+	h[key] = value
+}
+
+var tokenChars = []byte{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
+
+// validTokens checks if the data contains only valid tokens
+// or characters that are allowed in a token
+func validTokens(data []byte) bool {
+	for _, c := range data {
+		if !(c >= 'A' && c <= 'Z' ||
+			c >= 'a' && c <= 'z' ||
+			c >= '0' && c <= '9' ||
+			c == '-') {
 			return false
 		}
 	}
-
 	return true
 }
