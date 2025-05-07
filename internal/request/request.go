@@ -12,11 +12,12 @@ import (
 
 const crlf = "\r\n"
 
-// State. 0: Parse Requests, 1: Parse Headers, 2: done
+// State. 0: Parse Requests, 1: Parse Headers, 2: Parse Body, 3: Done
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	State       int
 }
 
@@ -33,11 +34,11 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	}
 	buf := make([]byte, 4096)
 	readBuffer := []byte{}
-	for req.State != 2 {
+	for req.State != 3 {
 		n, err := reader.Read(buf)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				if req.State != 2 {
+				if req.State != 3 {
 					return nil, fmt.Errorf("incomplete request, in state: %d, read n bytes on EOF: %d", req.State, n)
 				}
 				break
@@ -107,7 +108,7 @@ func requestLineFromString(str string) (*RequestLine, error) {
 
 func (r *Request) parse(data []byte) (int, error) {
 	totalBytesParsed := 0
-	for r.State != 2 {
+	for r.State != 3 {
 		n, err := r.parseSingle(data[totalBytesParsed:])
 		if err != nil {
 			return 0, err
@@ -145,6 +146,9 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		}
 		return i, nil
 	case 2:
+		r.State = 3
+		return 0, nil
+	case 3:
 		return 0, fmt.Errorf("error: trying to read data in a done state")
 	default:
 		return 0, fmt.Errorf("unexpected state: %v", r.State)
