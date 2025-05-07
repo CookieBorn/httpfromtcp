@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/CookieBorn/httpfromtcp/internal/headers"
@@ -146,7 +147,22 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		}
 		return i, nil
 	case 2:
-		r.State = 3
+		length, ok := r.Headers.Get("Content-Length")
+		if !ok {
+			r.State = 3
+			return 0, nil
+		}
+		lengthInt, err := strconv.Atoi(length)
+		if err != nil {
+			return 0, fmt.Errorf("Content-Length jeader malformed")
+		}
+		r.Body = data
+		if len(r.Body) > lengthInt {
+			return len(r.Body), fmt.Errorf("Data length: %d, Content-length: %d. Should be equal\n", len(data), lengthInt)
+		} else if len(r.Body) == lengthInt {
+			r.State = 3
+			return lengthInt, nil
+		}
 		return 0, nil
 	case 3:
 		return 0, fmt.Errorf("error: trying to read data in a done state")

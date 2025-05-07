@@ -72,3 +72,17 @@ func TestHeadersParse(t *testing.T) {
 	assert.Equal(t, "localhost:42069, curl/7.81.0", headers["host"])
 	assert.False(t, done)
 }
+
+func TestHeadersGet(t *testing.T) {
+	//Valid Get
+	headers := NewHeaders()
+	headers = map[string]string{"host": "localhost:42069"}
+	string, ok := headers.Get("host")
+	assert.Equal(t, "localhost:42069", string)
+	assert.True(t, ok)
+
+	//Missing Get
+	T2headers := NewHeaders()
+	string, ok = T2headers.Get("Test")
+	assert.False(t, ok)
+}
