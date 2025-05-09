@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+
+	"github.com/CookieBorn/httpfromtcp/internal/response"
 )
 
 type Server struct {
@@ -45,10 +47,20 @@ func (s *Server) listen() {
 }
 
 func (s *Server) handle(conn net.Conn) {
-	_, err := conn.Write([]byte("HTTP/1.1 200 OK\nContent-Type: text/plain\n\nHello World!"))
+
+	var resCode response.ResponseCode = 0
+	err := response.WriteStatusLine(conn, resCode)
 	if err != nil {
-		fmt.Printf("Write error: %s\n", err)
+		fmt.Printf("Write status line error: %s\n", err)
 	}
+
+	head := response.GetDefaultHeaders(0)
+
+	err = response.WriteHeaders(conn, head)
+	if err != nil {
+		fmt.Printf("Write header error: %s\n", err)
+	}
+
 	err = conn.Close()
 	if err != nil {
 		fmt.Printf("handle error: %s\n", err)
