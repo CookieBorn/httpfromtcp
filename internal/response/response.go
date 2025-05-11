@@ -16,6 +16,21 @@ const (
 	code500
 )
 
+type WriterState int
+
+const (
+	WriterStart WriterState = iota
+	StatusLine
+	Headers
+	Body
+	Done
+)
+
+type Writer struct {
+	Connection io.Writer
+	State      WriterState
+}
+
 func WriteStatusLine(w io.Writer, statusCode ResponseCode) error {
 	switch statusCode {
 	case code200:
@@ -25,13 +40,13 @@ func WriteStatusLine(w io.Writer, statusCode ResponseCode) error {
 		}
 		return nil
 	case code400:
-		_, err := w.Write([]byte("HTTP/1.1 400 Bad Request\n"))
+		_, err := w.Write([]byte("HTTP/1.1 400 Bad Request\r\n"))
 		if err != nil {
 			return err
 		}
 		return nil
 	case code500:
-		_, err := w.Write([]byte("HTTP/1.1 500 Internal Server Error\n"))
+		_, err := w.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n"))
 		if err != nil {
 			return err
 		}

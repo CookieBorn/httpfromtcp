@@ -1,21 +1,33 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 
+	"github.com/CookieBorn/httpfromtcp/internal/request"
 	"github.com/CookieBorn/httpfromtcp/internal/response"
 )
 
 type Server struct {
-	State  bool
-	Listen net.Listener
+	State       bool
+	HandlerFunc Handler
+	Listen      net.Listener
 }
 
-func Serve(port int) (*Server, error) {
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+
+type HandlerError struct {
+	Code     response.ResponseCode
+	ErrorMSG string
+}
+
+func Serve(port int, handler Handler) (*Server, error) {
 	NewServer := Server{
-		State: false,
+		State:       false,
+		HandlerFunc: handler,
 	}
 	listn, err := net.Listen("tcp", "localhost:"+strconv.Itoa(port))
 	if err != nil {
@@ -37,32 +49,67 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) listen() {
-	if s.State {
+	for {
 		con, err := s.Listen.Accept()
 		if err != nil {
 			fmt.Printf("Listen error: %s\n", err)
 		}
-		s.handle(con)
+		go s.handle(con)
 	}
 }
 
 func (s *Server) handle(conn net.Conn) {
-
-	var resCode response.ResponseCode = 0
-	err := response.WriteStatusLine(conn, resCode)
+	defer conn.Close()
+	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		fmt.Printf("Write status line error: %s\n", err)
+		fmt.Printf("Parse Req error: %s", err)
+		return
 	}
 
-	head := response.GetDefaultHeaders(0)
+	buffer := bytes.NewBuffer(nil)
+
+	handErr := s.HandlerFunc(buffer, req)
+	if handErr != nil {
+		Error(conn, *handErr)
+		return
+	}
+
+	head := response.GetDefaultHeaders(buffer.Len())
+
+	err = response.WriteStatusLine(conn, response.ResponseCode(0))
+	if err != nil {
+		fmt.Printf("Write status line error: %s\n", err)
+		return
+	}
 
 	err = response.WriteHeaders(conn, head)
 	if err != nil {
 		fmt.Printf("Write header error: %s\n", err)
+		return
 	}
 
-	err = conn.Close()
+	_, err = conn.Write(buffer.Bytes())
 	if err != nil {
-		fmt.Printf("handle error: %s\n", err)
+		fmt.Printf("Write body error: %s\n", err)
+		return
 	}
+}
+
+func Error(w io.Writer, handError HandlerError) error {
+	err := response.WriteStatusLine(w, handError.Code)
+	if err != nil {
+		return err
+	}
+
+	headers := response.GetDefaultHeaders(len(handError.ErrorMSG))
+	err = response.WriteHeaders(w, headers)
+	if err != nil {
+		return err
+	}
+
+	_, err = w.Write([]byte(handError.ErrorMSG))
+	if err != nil {
+		return err
+	}
+	return nil
 }

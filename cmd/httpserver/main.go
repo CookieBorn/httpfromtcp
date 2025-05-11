@@ -1,18 +1,20 @@
 package main
 
 import (
+	"io"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/CookieBorn/httpfromtcp/internal/request"
 	"github.com/CookieBorn/httpfromtcp/internal/server"
 )
 
 const port = 42069
 
 func main() {
-	server, err := server.Serve(port)
+	server, err := server.Serve(port, FirstHandle)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
@@ -23,4 +25,28 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 	log.Println("Server gracefully stopped")
+}
+
+func FirstHandle(w io.Writer, req *request.Request) *server.HandlerError {
+	switch req.RequestLine.RequestTarget {
+	case "/yourproblem":
+		return &server.HandlerError{
+			Code:     1,
+			ErrorMSG: "Your problem is not my problem\n",
+		}
+	case "/myproblem":
+		return &server.HandlerError{
+			Code:     2,
+			ErrorMSG: "Woopsie, my bad\n",
+		}
+	default:
+		_, err := w.Write([]byte("All good, frfr\n"))
+		if err != nil {
+			return &server.HandlerError{
+				Code:     2,
+				ErrorMSG: "Failed to write response",
+			}
+		}
+		return nil
+	}
 }
