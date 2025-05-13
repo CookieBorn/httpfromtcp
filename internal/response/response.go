@@ -29,6 +29,7 @@ type Writer struct {
 	Connection   io.Writer
 	State        WriterState
 	ResponseCode ResponseCode
+	Headers      headers.Headers
 }
 
 func (w *Writer) WriteStatusLine(statusCode ResponseCode) error {
@@ -87,6 +88,21 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 		return 0, err
 	}
 	w.State = BodyDone
+	return i, nil
+}
+
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	i, err := w.Connection.Write(fmt.Append([]byte(fmt.Sprintf("%016x", len(p))), []byte("\r\n"), p, []byte("\r\n")))
+	if err != nil {
+		return 0, err
+	}
+	return i, nil
+}
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	i, err := w.Connection.Write([]byte("0\r\n\r\n"))
+	if err != nil {
+		return 0, err
+	}
 	return i, nil
 }
 

@@ -76,7 +76,9 @@ func (s *Server) handle(conn net.Conn) {
 
 	s.HandlerFunc(&writer, req)
 
-	head := response.GetDefaultHeaders(buffer.Len())
+	if writer.Headers == nil {
+		writer.Headers = response.GetDefaultHeaders(buffer.Len())
+	}
 
 	err = response.WriteStatusLine(conn, writer.ResponseCode)
 	if err != nil {
@@ -84,7 +86,7 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 
-	err = response.WriteHeaders(conn, head)
+	err = response.WriteHeaders(conn, writer.Headers)
 	if err != nil {
 		fmt.Printf("Write header error: %s\n", err)
 		return
