@@ -20,15 +20,74 @@ type WriterState int
 
 const (
 	WriterStart WriterState = iota
-	StatusLine
-	Headers
-	Body
-	Done
+	StatusLineDone
+	HeadersDone
+	BodyDone
 )
 
 type Writer struct {
-	Connection io.Writer
-	State      WriterState
+	Connection   io.Writer
+	State        WriterState
+	ResponseCode ResponseCode
+}
+
+func (w *Writer) WriteStatusLine(statusCode ResponseCode) error {
+	if w.State != WriterStart {
+		return fmt.Errorf("Writer in wrong state")
+	}
+	switch statusCode {
+	case code200:
+		_, err := w.Connection.Write([]byte("HTTP/1.1 200 OK\r\n"))
+		if err != nil {
+			return err
+		}
+		w.State = StatusLineDone
+		return nil
+	case code400:
+		_, err := w.Connection.Write([]byte("HTTP/1.1 400 Bad Request\r\n"))
+		if err != nil {
+			return err
+		}
+		w.State = StatusLineDone
+		return nil
+	case code500:
+		_, err := w.Connection.Write([]byte("HTTP/1.1 500 Internal Server Error\r\n"))
+		if err != nil {
+			return err
+		}
+		w.State = StatusLineDone
+		return nil
+	default:
+		return nil
+	}
+}
+func (w *Writer) WriteHeaders(headers headers.Headers) error {
+	if w.State != StatusLineDone {
+		return fmt.Errorf("Writer in wrong state")
+	}
+	headString := ""
+	for key, value := range headers {
+		headString += fmt.Sprintf("%s: %s\r\n", key, value)
+	}
+	headString += "\r\n"
+	_, err := w.Connection.Write([]byte(headString))
+	if err != nil {
+		return err
+	}
+	w.State = HeadersDone
+	return nil
+}
+
+func (w *Writer) WriteBody(p []byte) (int, error) {
+	if w.State != HeadersDone {
+		return 0, fmt.Errorf("Writer in wrong state")
+	}
+	i, err := w.Connection.Write(p)
+	if err != nil {
+		return 0, err
+	}
+	w.State = BodyDone
+	return i, nil
 }
 
 func WriteStatusLine(w io.Writer, statusCode ResponseCode) error {
@@ -59,7 +118,7 @@ func WriteStatusLine(w io.Writer, statusCode ResponseCode) error {
 func GetDefaultHeaders(contentLen int) headers.Headers {
 	Head := headers.NewHeaders()
 	Head["Content-Length"] = strconv.Itoa(contentLen)
-	Head["Content-Type"] = "text/plain"
+	Head["Content-Type"] = "text/html"
 	Head["Connection"] = "close"
 	return Head
 }

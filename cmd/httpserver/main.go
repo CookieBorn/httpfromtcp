@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -8,13 +9,14 @@ import (
 	"syscall"
 
 	"github.com/CookieBorn/httpfromtcp/internal/request"
+	"github.com/CookieBorn/httpfromtcp/internal/response"
 	"github.com/CookieBorn/httpfromtcp/internal/server"
 )
 
 const port = 42069
 
 func main() {
-	server, err := server.Serve(port, FirstHandle)
+	server, err := server.Serve(port, SecondHandle)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
@@ -48,5 +50,34 @@ func FirstHandle(w io.Writer, req *request.Request) *server.HandlerError {
 			}
 		}
 		return nil
+	}
+}
+
+func SecondHandle(w *response.Writer, req *request.Request) {
+	switch req.RequestLine.RequestTarget {
+	case "/yourproblem":
+		_, err := w.Connection.Write([]byte("<html><head><title>400 Bad Request</title></head><body><h1>Bad Request</h1><p>Your request honestly kinda sucked.</p></body></html>"))
+		w.ResponseCode = 1
+		if err != nil {
+			fmt.Printf("Write handle error: %s", err)
+			return
+		}
+		return
+	case "/myproblem":
+		_, err := w.Connection.Write([]byte("<html><head><title>500 Internal Server Error</title></head><body><h1>Internal Server Error</h1><p>Okay, you know what? This one is on me.</p></body></html>"))
+		w.ResponseCode = 2
+		if err != nil {
+			fmt.Printf("Write handle error: %s", err)
+			return
+		}
+		return
+	default:
+		_, err := w.Connection.Write([]byte("<html><head><title>200 OK</title></head><body><h1>Success!</h1><p>Your request was an absolute banger.</p></body></html>\n"))
+		w.ResponseCode = 0
+		if err != nil {
+			fmt.Printf("Write handle error: %s", err)
+			return
+		}
+		return
 	}
 }

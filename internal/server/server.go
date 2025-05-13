@@ -17,7 +17,7 @@ type Server struct {
 	Listen      net.Listener
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
+type Handler func(w *response.Writer, req *request.Request)
 
 type HandlerError struct {
 	Code     response.ResponseCode
@@ -68,15 +68,17 @@ func (s *Server) handle(conn net.Conn) {
 
 	buffer := bytes.NewBuffer(nil)
 
-	handErr := s.HandlerFunc(buffer, req)
-	if handErr != nil {
-		Error(conn, *handErr)
-		return
+	writer := response.Writer{
+		Connection:   buffer,
+		State:        response.WriterStart,
+		ResponseCode: 0,
 	}
+
+	s.HandlerFunc(&writer, req)
 
 	head := response.GetDefaultHeaders(buffer.Len())
 
-	err = response.WriteStatusLine(conn, response.ResponseCode(0))
+	err = response.WriteStatusLine(conn, writer.ResponseCode)
 	if err != nil {
 		fmt.Printf("Write status line error: %s\n", err)
 		return
