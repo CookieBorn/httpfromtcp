@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 
 	"github.com/CookieBorn/httpfromtcp/internal/headers"
 )
@@ -108,15 +109,49 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 
 	return n1 + n2 + n3, nil
 }
-func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	i, err := w.Connection.Write([]byte("0\r\n\r\n"))
+func (w *Writer) WriteChunkedBodyDone(h headers.Headers) (int, error) {
+	if h == nil {
+		i, err := w.Connection.Write([]byte("0\r\n\r\n"))
+		if err != nil {
+			return 0, err
+		}
+		return i, nil
+	}
+	i1, err := w.Connection.Write([]byte("0\r\n"))
 	if err != nil {
 		return 0, err
 	}
-	return i, nil
+	i2, err := w.WriteTrailers(h)
+	if err != nil {
+		return i1, err
+	}
+	i3, err := w.Connection.Write([]byte("\r\n"))
+	if err != nil {
+		return 0, err
+	}
+	return i1 + i2 + i3, nil
 }
 
-func (w *Writer) WriteTrailers(h headers.Headers) error
+func (w *Writer) WriteTrailers(h headers.Headers) (int, error) {
+	keys, ok := w.Headers.Get("Trailer")
+	if !ok {
+		return 0, fmt.Errorf("Missing Trailer Headers")
+	}
+	keysSplit := strings.Split(keys, ", ")
+	trailerString := ""
+	for _, key := range keysSplit {
+		value, ok := h.Get(key)
+		if !ok {
+			return 0, fmt.Errorf("Missing Trailers in Header")
+		}
+		trailerString += key + ": " + value + "\r\n"
+	}
+	i, err := w.Connection.Write([]byte(trailerString))
+	if err != nil {
+		return i, err
+	}
+	return i, nil
+}
 
 func WriteStatusLine(w io.Writer, statusCode ResponseCode) error {
 	switch statusCode {

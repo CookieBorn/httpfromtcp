@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -114,13 +116,16 @@ func ThirdHandle(w *response.Writer, req *request.Request) {
 		}
 	}
 	head.Set("Transfer-Encoding", "chunked")
+	head.Set("Trailer", "X-Content-SHA256, X-Content-Length")
 	w.Headers = head
 
 	buf := make([]byte, 1024)
+	resBody := ""
 	for {
 		n, err := res.Body.Read(buf)
 		if n > 0 {
 			w.WriteChunkedBody(buf[:n])
+			resBody += string(buf[:n])
 		}
 		if err != nil {
 			if err == io.EOF {
@@ -132,7 +137,10 @@ func ThirdHandle(w *response.Writer, req *request.Request) {
 			return
 		}
 	}
-	w.WriteChunkedBodyDone()
+	trailers := headers.NewHeaders()
+	trailers.Set("X-Content-SHA256", fmt.Sprintf("%x", sha256.Sum256([]byte(resBody))))
+	trailers.Set("X-Content-Length", strconv.Itoa(len([]byte(resBody))))
+	w.WriteChunkedBodyDone(trailers)
 
 	return
 }
