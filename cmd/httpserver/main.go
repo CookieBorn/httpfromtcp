@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -95,33 +94,45 @@ func ThirdHandle(w *response.Writer, req *request.Request) {
 	}
 	length := strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin/")
 
-	head := headers.NewHeaders()
-	head.Set("Transfer-Encoding", "chunked")
-	head.Set("Content-Type", "text/plain")
-	w.Headers = head
-
 	res, err := http.Get("https://httpbin.org/" + length)
 	if err != nil {
 		w.Headers = nil
-		w.ResponseCode = 1
+		w.ResponseCode = 2
 		w.Connection.Write([]byte("Get error"))
 		return
 	}
+	defer res.Body.Close()
 
-	i, _ := strconv.Atoi(length)
+	w.ResponseCode = 0
+
+	head := headers.NewHeaders()
+	for k, vList := range res.Header {
+		if k != "Content-Length" {
+			for _, v := range vList {
+				head.Set(k, v)
+			}
+		}
+	}
+	head.Set("Transfer-Encoding", "chunked")
+	w.Headers = head
 
 	buf := make([]byte, 1024)
-	for read := 0; read < i; read++ {
+	for {
 		n, err := res.Body.Read(buf)
+		if n > 0 {
+			w.WriteChunkedBody(buf[:n])
+		}
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
 			w.Headers = nil
 			w.ResponseCode = 1
 			w.Connection.Write([]byte("Read error"))
 			return
 		}
-		fmt.Printf("%s\n", buf[:n])
-		w.WriteChunkedBody(buf[:n])
 	}
 	w.WriteChunkedBodyDone()
+
 	return
 }

@@ -92,11 +92,21 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 }
 
 func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
-	i, err := w.Connection.Write(fmt.Append([]byte(fmt.Sprintf("%016x", len(p))), []byte("\r\n"), p, []byte("\r\n")))
+	chunkHeader := fmt.Sprintf("%x\r\n", len(p))
+	n1, err := w.Connection.Write([]byte(chunkHeader))
 	if err != nil {
-		return 0, err
+		return n1, err
 	}
-	return i, nil
+	n2, err := w.Connection.Write(p)
+	if err != nil {
+		return n1 + n2, err
+	}
+	n3, err := w.Connection.Write([]byte("\r\n"))
+	if err != nil {
+		return n1 + n2 + n3, err
+	}
+
+	return n1 + n2 + n3, nil
 }
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
 	i, err := w.Connection.Write([]byte("0\r\n\r\n"))
@@ -105,6 +115,8 @@ func (w *Writer) WriteChunkedBodyDone() (int, error) {
 	}
 	return i, nil
 }
+
+func (w *Writer) WriteTrailers(h headers.Headers) error
 
 func WriteStatusLine(w io.Writer, statusCode ResponseCode) error {
 	switch statusCode {
