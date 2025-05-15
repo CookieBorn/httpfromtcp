@@ -21,7 +21,7 @@ import (
 const port = 42069
 
 func main() {
-	server, err := server.Serve(port, ThirdHandle)
+	server, err := server.Serve(port, FourthHandle)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
@@ -143,4 +143,30 @@ func ThirdHandle(w *response.Writer, req *request.Request) {
 	w.WriteChunkedBodyDone(trailers)
 
 	return
+}
+
+func FourthHandle(w *response.Writer, req *request.Request) {
+	if ok := strings.HasPrefix(req.RequestLine.RequestTarget, "/video"); !ok {
+		w.Headers = nil
+		w.ResponseCode = 1
+		w.Connection.Write([]byte("Missing prefix"))
+		return
+	}
+
+	head := headers.NewHeaders()
+	head.Set("Content-Type", "video/mp4")
+	w.Headers = head
+
+	file, err := os.ReadFile("assets/vim.mp4")
+	if err != nil {
+		w.Headers = nil
+		w.ResponseCode = 1
+		w.Connection.Write([]byte(fmt.Sprintf("Read err: %s", err)))
+	}
+	_, err = w.Connection.Write(file)
+	if err != nil {
+		w.Headers = nil
+		w.ResponseCode = 1
+		w.Connection.Write([]byte(fmt.Sprintf("Write err: %s", err)))
+	}
 }
